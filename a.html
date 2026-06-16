@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>卡密链接分发</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Noto Sans SC', sans-serif;
+      background: #0f0f1a;
+      color: #e0e0e0;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+    .bg-shape {
+      position: fixed; border-radius: 50%; filter: blur(80px); opacity: 0.15; z-index: 0;
+    }
+    .bg-one { width: 500px; height: 500px; background: #7c3aed; top: -200px; right: -100px; }
+    .bg-two { width: 400px; height: 400px; background: #3b82f6; bottom: -150px; left: -80px; }
+    .container {
+      position: relative; z-index: 1;
+      max-width: 600px; width: 100%;
+      display: flex; flex-direction: column; gap: 24px;
+    }
+    .card {
+      background: rgba(255,255,255,0.04);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 24px;
+      padding: 28px;
+    }
+    h1 {
+      font-size: 2rem; font-weight: 700;
+      background: linear-gradient(135deg, #c084fc, #60a5fa);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      margin-bottom: 8px;
+    }
+    .desc { color: #9ca3af; margin-bottom: 20px; }
+    label { display: block; margin-bottom: 16px; font-weight: 600; color: #d1d5db; }
+    select, input {
+      width: 100%; padding: 12px; margin-top: 6px;
+      border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(255,255,255,0.05); color: #fff; font-size: 1rem;
+    }
+    button {
+      width: 100%; padding: 14px;
+      background: linear-gradient(135deg, #7c3aed, #2563eb);
+      border: none; border-radius: 14px;
+      color: #fff; font-weight: 600; font-size: 1rem;
+      cursor: pointer; margin-top: 10px;
+      transition: opacity 0.2s;
+    }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .result-list { list-style: none; margin-top: 16px; }
+    .result-list li {
+      background: rgba(255,255,255,0.04); border-radius: 12px;
+      padding: 12px 16px; margin-bottom: 10px;
+      display: flex; justify-content: space-between; align-items: center;
+      gap: 10px; flex-wrap: wrap;
+    }
+    .result-list a { color: #93c5fd; word-break: break-all; }
+    .copy-btn {
+      background: transparent; border: 1px solid rgba(255,255,255,0.2);
+      color: #fff; padding: 6px 12px; border-radius: 8px; cursor: pointer;
+    }
+    .secondary-btn {
+      background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);
+      margin-bottom: 12px; display: none;
+    }
+    .status { margin-top: 8px; min-height: 20px; }
+  </style>
+</head>
+<body>
+  <div class="bg-shape bg-one"></div>
+  <div class="bg-shape bg-two"></div>
+
+  <div class="container">
+    <!-- 说明卡片 -->
+    <div class="card">
+      <h1>🎁 卡密链接生成器</h1>
+      <p class="desc">选择档位和数量后，点击按钮自动从接口获取卡密链接。</p>
+    </div>
+
+    <!-- 表单卡片 -->
+    <div class="card">
+      <label>充值档位
+        <select id="category">
+          <option value="qb10">Q币 ×10</option>
+          <option value="qb30">Q币 ×30</option>
+          <option value="dqb100">点券 ×100</option>
+        </select>
+      </label>
+      <label>数量（需要几条链接就填几）
+        <input id="quantity" type="number" min="1" max="20" value="1">
+      </label>
+      <button id="generateBtn">立即领取</button>
+      <p id="status" class="status"></p>
+    </div>
+
+    <!-- 结果卡片 -->
+    <div class="card">
+      <h2>📋 生成结果</h2>
+      <button id="copyAllBtn" class="secondary-btn copy-btn" style="display:none;">一键复制所有链接</button>
+      <ul id="resultList" class="result-list"></ul>
+    </div>
+  </div>
+
+  <script>
+    // ====================== 配置区（不需要改，除非接口变）======================
+    const API_URL = 'https://hxdf.goo7ch.top/api_group/Account/generateCardKey';
+
+    // ====================== 主逻辑 ======================
+    const generateBtn = document.getElementById('generateBtn');
+    const statusDiv = document.getElementById('status');
+    const resultList = document.getElementById('resultList');
+    const copyAllBtn = document.getElementById('copyAllBtn');
+    const categorySelect = document.getElementById('category');
+    const quantityInput = document.getElementById('quantity');
+
+    let allLinks = []; // 存储本次获取的所有链接
+
+    // 点击“立即领取”
+    generateBtn.addEventListener('click', async () => {
+      const quantity = parseInt(quantityInput.value, 10);
+      if (isNaN(quantity) || quantity < 1 || quantity > 20) {
+        statusDiv.style.color = '#f87171';
+        statusDiv.textContent = '数量请填1-20之间的数字';
+        return;
+      }
+
+      // 暂时保留档位信息，虽然目前接口可能不需要，但以后可能用上
+      const category = categorySelect.value;
+
+      // 清空旧结果
+      resultList.innerHTML = '';
+      copyAllBtn.style.display = 'none';
+      allLinks = [];
+      statusDiv.style.color = '#9ca3af';
+      statusDiv.textContent = '正在生成，请稍候...';
+      generateBtn.disabled = true;
+      generateBtn.textContent = '生成中...';
+
+      try {
+        // 因为目前接口每次只返回一个链接，如果我们请求多个，则需要调用多次
+        const promises = [];
+        for (let i = 0; i < quantity; i++) {
+          promises.push(fetchOneLink());
+        }
+        const results = await Promise.all(promises);
+
+        // 将所有链接合并
+        allLinks = results.filter(link => link !== null);
+        renderLinks(allLinks);
+
+        if (allLinks.length === 0) {
+          statusDiv.style.color = '#f87171';
+          statusDiv.textContent = '没有获取到任何链接，请稍后重试';
+        } else {
+          statusDiv.style.color = '#4ade80';
+          statusDiv.textContent = `成功获取 ${allLinks.length} 个链接！`;
+        }
+      } catch (err) {
+        console.error(err);
+        statusDiv.style.color = '#f87171';
+        statusDiv.textContent = '发生错误：' + err.message;
+      } finally {
+        generateBtn.disabled = false;
+        generateBtn.textContent = '立即领取';
+      }
+    });
+
+    // 调用一次接口，返回链接字符串（或null）
+    async function fetchOneLink() {
+      try {
+        // 这里我们发一个空的 POST 请求，因为目前接口似乎不需要参数
+        // 如果将来需要参数，请修改 body 内容
+        const response = await fetch(API_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            // 如果接口需要在 header 里带 token，请在这里添加，例如：
+            // 'Authorization': 'Bearer 你的token'
+          },
+          body: JSON.stringify({
+            // 如果有参数就填在这里，例如：
+            // category: categorySelect.value,
+            // quantity: 1
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`服务器返回错误状态码：${response.status}`);
+        }
+
+        const data = await response.json();
+        // 解析返回数据：取 data.url 数组的第一个元素
+        if (data && data.data && data.data.url && data.data.url.length > 0) {
+          return data.data.url[0];  // 返回第一个链接
+        } else {
+          throw new Error('接口返回数据格式有误，没有找到链接');
+        }
+      } catch (error) {
+        console.error('单次请求失败：', error);
+        return null; // 单次失败不影响其他请求
+      }
+    }
+
+    // 渲染链接列表到页面
+    function renderLinks(links) {
+      resultList.innerHTML = '';
+      if (links.length === 0) {
+        resultList.innerHTML = '<li>暂无链接</li>';
+        copyAllBtn.style.display = 'none';
+        return;
+      }
+
+      copyAllBtn.style.display = 'inline-block';
+
+      links.forEach((link) => {
+        const li = document.createElement('li');
+        li.innerHTML = `
+          <a href="${link}" target="_blank">${link}</a>
+          <button class="copy-btn" data-link="${link}">复制</button>
+        `;
+        resultList.appendChild(li);
+      });
+
+      // 绑定每个复制按钮
+      document.querySelectorAll('.copy-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const link = e.target.getAttribute('data-link');
+          copyText(link);
+          e.target.textContent = '已复制';
+          setTimeout(() => { e.target.textContent = '复制'; }, 1500);
+        });
+      });
+    }
+
+    // 一键复制所有链接
+    copyAllBtn.addEventListener('click', () => {
+      if (allLinks.length === 0) return;
+      const text = allLinks.join('\n');
+      copyText(text);
+      copyAllBtn.textContent = '已复制';
+      setTimeout(() => { copyAllBtn.textContent = '一键复制所有链接'; }, 2000);
+    });
+
+    // 通用复制函数
+    function copyText(text) {
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
+      } else {
+        fallbackCopy(text);
+      }
+    }
+    function fallbackCopy(text) {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
+  </script>
+</body>
+</html>
